@@ -45,7 +45,7 @@ import re
 import sys
 import time
 from typing import Optional
-from urllibe.parse import quote_plus
+from urllib.parse import quote_plus
 
 from bs4 import BeautifulSoup
 
@@ -72,7 +72,7 @@ def build_search_url(query: str, page: int = 1) -> str:
     pagination = ""
   else:
     offset = (page - 1) * ITEMS_PER_PAGE + 1
-    paggination = f"_Desde_{offset}"
+    pagination = f"_Desde_{offset}"
   return BASE_SEARCH_URL.format(query=encoded_query, pagination=pagination)
 
 def build_page_url(base_url: str, page: int) -> str:
@@ -106,10 +106,10 @@ def _extract_price_block(container) -> dict:
 
   # Original price (before discount)
   orig_tag = container.find(
-    "s", class=lambda c: c and "andes-money-amount--previous" in c
+    "s", class_=lambda c: c and "andes-money-amount--previous" in c
   )
   if orig_tag:
-    frac = orig_tag.find("span", class_="andes_money-amount__fraction")
+    frac = orig_tag.find("span", class_="andes-money-amount__fraction")
     data["original_price"] = clean_price(frac.get_text(strip=True)) if frac else ""
 
   # Current price
@@ -148,7 +148,7 @@ def parse_products(html: str) -> list[dict]:
   items = soup.find_all(
     "li",
     class_=lambda c: c
-    and "ui-seach-layout__item" in c
+    and "ui-search-layout__item" in c
     and "intervention" not in c,
   )
 
@@ -156,7 +156,7 @@ def parse_products(html: str) -> list[dict]:
     # title & url
     title_tag = item.find("a", class_="poly-component__title")
     if not title_tag:
-      continue $ skip non-product items
+      continue # skip non-product items
 
     base_title = title_tag.get_text(strip=True)
     base_href = title_tag.get("href", "")
@@ -174,7 +174,7 @@ def parse_products(html: str) -> list[dict]:
       base_rating = label.get_text(strip=True) if label else ""
 
     # Shipping
-    ship_tag = item.find("div", class__="poly-component__shipping")
+    ship_tag = item.find("div", class_="poly-component__shipping")
     base_shipping = ship_tag.get_text(strip=True) if ship_tag else ""
 
     # Image URL
@@ -208,13 +208,12 @@ def parse_products(html: str) -> list[dict]:
     main_product = {
       "title": base_title,
       "price": main_prices["price"],
-      "currency": main_prices["currency"].
+      "currency": main_prices["currency"],
       "original_price": main_prices["original_price"],
       "discount": main_prices["discount"],
       "installments": main_prices["installments"],
       "seller": base_seller,
       "rating": base_rating,
-      "installments": main_prices["installments"],
       "shipping": base_shipping,
       "product_url": base_url,
       "image_url": base_image,
@@ -259,7 +258,7 @@ def parse_products(html: str) -> list[dict]:
         "rating": base_rating,
         "installments": alt_prices["installments"],
         "shipping": base_shipping,
-        "url": alt_url if alt_url else base_url,
+        "product_url": alt_url if alt_url else base_url,
         "image_url": base_image,
         "offer_type": f"alternative ({alt_offer_label})" if alt_offer_label else "alternative",
       }
@@ -276,7 +275,7 @@ def check_has_next_page(html: str) -> bool:
   )
   if next_link:
     return True
-  next_text = soup.find("a", strip=re.compile(r"Siguiente", re.IGNORECASE))
+  next_text = soup.find("a", string=re.compile(r"Siguiente", re.IGNORECASE))
   return next_text is not None
 
 ##
@@ -292,7 +291,7 @@ async def _playwright_fetch(url: str, context, retries: int = 2) -> Optional[str
 
       try:
         await page.wait_for_selector(
-          "li.ui-seach-layout__item, ol.ui-search-layour",
+          "li.ui-search-layout__item, ol.ui-search-layout",
           timeout=15_000,
         )
       except Exception:
@@ -315,7 +314,7 @@ async def _playwright_fetch(url: str, context, retries: int = 2) -> Optional[str
           await asyncio.sleep(3 + random.uniform(0, 2))
         continue
 
-     await page.close()
+      await page.close()
       return html
 
     except Exception as exc:
@@ -336,7 +335,7 @@ async def scrape_playwright(
   delay: float,
   headless: bool,
 ) -> list[dict]:
-"""Scrape using Playwright with stealth."""
+  """Scrape using Playwright with stealth."""
   try:
     from playwright.async_api import async_playwright
   except ImportError:
@@ -377,18 +376,18 @@ async def scrape_playwright(
     )
     
     if stealth_obj:
-      await stealth_obj.apply_stealth(context)
+      await context.add_init_script(stealth_obj.script_payload)
 
     for page_num in range(1, max_pages + 1):
       if url:
         page_url = url if page_num == 1 else build_page_url(url, page_num)
       else:
         page_url = build_search_url(query, page_num)
-      logger.info("Scraping page %d: %s", page_num, max_pages, page_url)
+      logger.info("Scraping page %d/%d: %s", page_num, max_pages, page_url)
 
       html = await _playwright_fetch(page_url, context)
       if html is None:
-        logger.error("Failed to fetch page %d after retries: %s", page_num)
+        logger.error("Failed to fetch page %d after retries: %s", page_num, page_url)
         break
       
       products = parse_products(html)
@@ -450,7 +449,7 @@ def _selenium_create_driver(headless: bool = True):
   
   driver = webdriver.Chrome(options=options)
   driver.execute_cdp_cmd(
-    "Page.addScriptToEvaluatedOnNewDocument",
+    "Page.addScriptToEvaluateOnNewDocument",
     {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"},
   )
   driver.set_page_load_timeout(60)
@@ -468,7 +467,7 @@ def _selenium_fetch(driver, url: str, retries: int = 2) -> Optional[str]:
 
       try:
         WebDriverWait(driver, 15).until(
-          EC.presence_of_element_located((By.CSS_SELECTOR, "li.ui-seach-layout__item, ol.ui-search-layout"))
+          EC.presence_of_element_located((By.CSS_SELECTOR, "li.ui-search-layout__item, ol.ui-search-layout"))
         )
       except Exception:
         pass
@@ -523,7 +522,7 @@ def scrape_selenium(
         page_url = url if page_num == 1 else build_page_url(url, page_num)
       else:
         page_url = build_search_url(query, page_num)
-      logger.info("Scraping page %d: %s", page_num, max_pages, page_url)
+      logger.info("Scraping page %d/%d: %s", page_num, max_pages, page_url)
 
       html = _selenium_fetch(driver, page_url)
       if html is None:
@@ -581,8 +580,8 @@ def export_csv(products: list[dict], filename: str) -> None:
   if not products:
     logger.warning("No products to export.")
     return
-  with open(filepath, "w", newline="", encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+  with open(filename, "w", newline="", encoding="utf-8") as f:
+    writer = csv.DictWriter(f, fieldnames=FIELDNAMES, extrasaction="ignore")
     writer.writeheader()
     writer.writerows(products)
   logger.info("Exported %d products to %s", len(products), filename)
@@ -595,7 +594,7 @@ def export_json(products: list[dict], filename: str) -> None:
     return
   with open(filename, "w", encoding="utf-8") as f:
     json.dump(products, f, ensure_ascii=False, indent=2)
-  logger.info("Exported %d products to %s", len(products), filepath)
+  logger.info("Exported %d products to %s", len(products), filename)
 
 ##
 # Main orchestrator
@@ -636,33 +635,33 @@ def scrape(
     -------
     list[dict]
         A list of product data dictionaries extracted from the search results.
-    """
-    logger.info("Starting MercadoLibre scraper with engine: %s", engine, headless)
+  """
+  logger.info("Starting MercadoLibre scraper with engine: %s (headless=%s)", engine, headless)
 
-    if engine == "playwright":
-      all_products = asyncio.run(
+  if engine == "playwright":
+    all_products = asyncio.run(
         scrape_playwright(query, url, max_pages, delay, headless)
-      )
-      if not all_products:
-        logger.warning("Playwright scraping failed or returned no products. Trying Selenium fallback...")
-        all_products = scrape_selenium(query, url, max_pages, delay, headless)
-    else:
-      all_products = scrape_selenium(query, url, max_pages, delay, headless)
-
-    main_count = sum(1 for p in all_products if p["offer_type"] == "main"
-    alt_count = len(all_products) - main_count
-    logger.info(
-      "Scraping completed. Total products: %d (%d main + %d alternative offers)",
-      len(all_products), main_count, alt_count,
     )
+    if not all_products:
+      logger.warning("Playwright scraping failed or returned no products. Trying Selenium fallback...")
+      all_products = scrape_selenium(query, url, max_pages, delay, headless)
+  else:
+    all_products = scrape_selenium(query, url, max_pages, delay, headless)
 
-    if all_products:
-      if fmt == "json":
-        export_json(all_products, output)
-      else:
-        export_csv(all_products, output)
-    
-    return all_products
+  main_count = sum(1 for p in all_products if p["offer_type"] == "main")
+  alt_count = len(all_products) - main_count
+  logger.info(
+    "Scraping completed. Total products: %d (%d main + %d alternative offers)",
+    len(all_products), main_count, alt_count,
+  )
+
+  if all_products:
+    if fmt == "json":
+      export_json(all_products, output)
+    else:
+      export_csv(all_products, output)
+
+  return all_products
 
 ##
 # CLI entry point
@@ -676,28 +675,28 @@ def main():
   Examples:
     %(prog)s "notebook" --pages 3 --output results.csv
     %(prog)s "celular samsung" --pages 2 --format json
-    %(prog)s --url "https://listado.mercadolibre.com.ar/notebook
+    %(prog)s --url "https://listado.mercadolibre.com.ar/notebook"
     %(prog)s "zapatillas" --engine selenium
     %(prog)s "tv smart" --no-headless
     %(prog)s "auriculares" --engine selenium
     """,
-    )
-    parser.add_argument("query", nargs="?", default="", help="Search keyword(s) to look up.")
-    parser.add_argument("--url", help="Direct listing URL (overrides query if provided).")
-    parser.add_argument("--pages", type=int, default=1, help="Maximum number of pages to scrape.")
-    parser.add_argument("--delay", type=float, default=3.0, help="Base delay (in seconds) between page requests to avoid rate-limiting.")
-    parser.add_argument("--output", default="mercadolibre_results.csv", help="Output file path for the scraped data.")
-    parser.add_argument("--format", choices=["csv", "json"], default="csv", help="Output format: 'csv' or 'json'.")
-    parser.add_argument("--no-headless", action="store_false", dest="headless", help="Run browser in non-headless mode (with GUI).")
-    parser.add_argument("--engine", choices=["playwright", "selenium"], default="playwright", help="Browser engine to use: 'playwright' (default) or 'selenium' (fallback).")
+  )
+  parser.add_argument("query", nargs="?", default="", help="Search keyword(s) to look up.")
+  parser.add_argument("--url", help="Direct listing URL (overrides query if provided).")
+  parser.add_argument("--pages", type=int, default=1, help="Maximum number of pages to scrape.")
+  parser.add_argument("--delay", type=float, default=3.0, help="Base delay (in seconds) between page requests to avoid rate-limiting.")
+  parser.add_argument("--output", default="", help="Output file path for the scraped data.")
+  parser.add_argument("--format", choices=["csv", "json"], default="csv", help="Output format: 'csv' or 'json'.")
+  parser.add_argument("--no-headless", action="store_false", dest="headless", help="Run browser in non-headless mode (with GUI).")
+  parser.add_argument("--engine", choices=["playwright", "selenium"], default="playwright", help="Browser engine to use: 'playwright' (default) or 'selenium' (fallback).")
   args = parser.parse_args()
 
   if not args.query and not args.url:
     parser.error("You must provide either a search query or a direct URL.")
   
   if not args.output:
-    ext = "json" if args.fmt == "json" else "csv"
-    safe_name = re.sub(r"[^\w\-]+", "_", args.query.strip())[:50] or "results").strip("_")
+    ext = "json" if args.format == "json" else "csv"
+    safe_name = (re.sub(r"[^\w\-]+", "_", args.query.strip())[:50] or "results").strip("_")
     args.output = f"mercadolibre_{safe_name}.{ext}"
 
   products = scrape(
@@ -717,7 +716,7 @@ def main():
 
     print(f"\n{'='*80}")
     print(f" Done! {len(products)} rows saved to: {args.output}")
-    print(f" ({main_count} main offers + {alt_count} alternative offers
+    print(f" ({main_count} main offers + {alt_count} alternative offers)")
     print(f"{'='*80}\n")
     print("\nSample (first 5 rows):")
     print("-" * 80)
