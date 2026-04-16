@@ -334,6 +334,7 @@ async def scrape_playwright(
   max_pages: int,
   delay: float,
   headless: bool,
+  proxy: Optional[str] = None,
 ) -> list[dict]:
   """Scrape using Playwright with stealth."""
   try:
@@ -366,14 +367,18 @@ async def scrape_playwright(
         "--disable-blink-features=AutomationControlled",
       ],
     )
-    context = await browser.new_context(
-      viewport={"width": 1920, "height": 1080},
-      locale="es-AR",
-      user_agent=(
+    context_kwargs: dict = {
+      "viewport": {"width": 1920, "height": 1080},
+      "locale": "es-AR",
+      "user_agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
       ),
-    )
+    }
+    if proxy:
+      context_kwargs["proxy"] = {"server": proxy}
+      logger.info("Using proxy: %s", proxy)
+    context = await browser.new_context(**context_kwargs)
     
     if stealth_obj:
       await context.add_init_script(stealth_obj.script_payload)
@@ -421,7 +426,7 @@ async def scrape_playwright(
 # Engine: Selenium (fallback)
 ##
 
-def _selenium_create_driver(headless: bool = True):
+def _selenium_create_driver(headless: bool = True, proxy: Optional[str] = None):
   """Create a Selenium Chrome/Chromium driver."""
   from selenium import webdriver
   from selenium.webdriver.chrome.options import Options
@@ -441,6 +446,9 @@ def _selenium_create_driver(headless: bool = True):
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
   )
   options.add_argument("--lang=es-AR")
+  if proxy:
+    options.add_argument(f"--proxy-server={proxy}")
+    logger.info("Using proxy: %s", proxy)
 
   for binary in ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]:
     if os.path.exists(binary):
@@ -502,6 +510,7 @@ def scrape_selenium(
   max_pages: int,
   delay: float,
   headless: bool,
+  proxy: Optional[str] = None,
 ) -> list[dict]:
   """Scrape using Selenium."""
   try:
@@ -514,7 +523,7 @@ def scrape_selenium(
     return []
 
   all_products: list[dict] = []
-  driver = _selenium_create_driver(headless)
+  driver = _selenium_create_driver(headless, proxy)
 
   try:
     for page_num in range(1, max_pages + 1):
@@ -609,6 +618,7 @@ def scrape(
   fmt: str = "csv",
   headless: bool = True,
   engine: str = "playwright",
+  proxy: Optional[str] = None,
 ) -> list[dict]:
   """Main scraping function.
 
@@ -630,7 +640,10 @@ def scrape(
         Run browser in headless mode (no GUI).
     engine : str
         Browser engine: 'playwright' (default) or 'selenium' (fallback).
-    
+    proxy : str, optional
+        Proxy server URL, e.g. 'http://user:pass@host:port'. Supports
+        residential proxy services (Bright Data, Oxylabs, SmartProxy, etc.).
+
     Returns
     -------
     list[dict]
@@ -640,13 +653,13 @@ def scrape(
 
   if engine == "playwright":
     all_products = asyncio.run(
-        scrape_playwright(query, url, max_pages, delay, headless)
+        scrape_playwright(query, url, max_pages, delay, headless, proxy)
     )
     if not all_products:
       logger.warning("Playwright scraping failed or returned no products. Trying Selenium fallback...")
-      all_products = scrape_selenium(query, url, max_pages, delay, headless)
+      all_products = scrape_selenium(query, url, max_pages, delay, headless, proxy)
   else:
-    all_products = scrape_selenium(query, url, max_pages, delay, headless)
+    all_products = scrape_selenium(query, url, max_pages, delay, headless, proxy)
 
   main_count = sum(1 for p in all_products if p["offer_type"] == "main")
   alt_count = len(all_products) - main_count
@@ -689,7 +702,20 @@ def main():
   parser.add_argument("--format", choices=["csv", "json"], default="csv", help="Output format: 'csv' or 'json'.")
   parser.add_argument("--no-headless", action="store_false", dest="headless", help="Run browser in non-headless mode (with GUI).")
   parser.add_argument("--engine", choices=["playwright", "selenium"], default="playwright", help="Browser engine to use: 'playwright' (default) or 'selenium' (fallback).")
+  parser.add_argument(
+    "--proxy",
+    default="",
+    help=(
+      "Proxy server URL, e.g. 'http://user:pass@host:port'. "
+      "Use a residential proxy (Bright Data, Oxylabs, SmartProxy) to avoid bot detection. "
+      "Can also be set via the SCRAPER_PROXY environment variable."
+    ),
+  )
   args = parser.parse_args()
+
+  # Allow proxy to be set via environment variable as a fallback
+  if not args.proxy:
+    args.proxy = os.environ.get("SCRAPER_PROXY", "")
 
   if not args.query and not args.url:
     parser.error("You must provide either a search query or a direct URL.")
@@ -708,6 +734,7 @@ def main():
     fmt=args.format,
     headless=args.headless,
     engine=args.engine,
+    proxy=args.proxy or None,
   )
 
   if products:

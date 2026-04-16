@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip --version)",
+      "Bash(python -m pip list)",
+      "Bash(python -m playwright install --help)",
+      "Bash(python -c \"from playwright.sync_api import sync_playwright; p = sync_playwright\\(\\).__enter__\\(\\); b = p.chromium.launch\\(\\); b.close\\(\\); p.__exit__\\(None,None,None\\); print\\('Chromium OK'\\)\")",
+      "Bash(python -m playwright install chromium)",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import mercadolibre_scraper; print\\('Import OK'\\)\")"
+    ]
+  }
+}
