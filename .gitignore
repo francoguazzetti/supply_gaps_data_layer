@@ -1,0 +1,6 @@
+.vevnv
+.env
+.claude
+__pycache__
+requirements.txt
+scripts/__pycache__
